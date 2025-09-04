@@ -1,6 +1,6 @@
 # Express Vanilla example
 
-This project demonstrates how to use Express with vanilla JavaScript.
+This project demonstrates how to use Express with vanilla JavaScript. This project uses ES6 modules and modern JavaScript features instead of CommonJS.
 
 ## Getting Started
 

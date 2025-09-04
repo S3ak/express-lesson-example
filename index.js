@@ -3,13 +3,70 @@ import express from "express";
 import aboutHTMLTemplate from "./views/about.js";
 import { faker } from "@faker-js/faker";
 import { createProducts } from "./utils/mocks.js";
+import { readFileSync, writeFile } from "node:fs";
 
 const PORT = 3000;
+let games = [];
+let htmlFilebuffer;
 
 // Create an instance of an Express application
 const app = express();
 
-const indexHTMLTemplate = `
+// Load initial data from files when the server starts
+try {
+  // --- Load JSON Data FIles ---
+  // We use the synchronous read here because it's a one-time startup task.
+  const DATAFILEPATH = "./storage/games.json";
+
+  const buffer = readFileSync(new URL(DATAFILEPATH, import.meta.url));
+
+  games = JSON.parse(buffer);
+
+  // --- Load HTML FIles ---
+
+  const ABOUTHTMLFILEPATH = "./public/about.html";
+
+  htmlFilebuffer = readFileSync(new URL(ABOUTHTMLFILEPATH, import.meta.url));
+} catch (error) {
+  console.error("Error reading data file on startup:", error);
+  // If the file doesn't exist or is invalid, start with an empty array
+  games = [];
+}
+
+// Helper function to write data to the file
+const saveGamesData = async () => {
+  try {
+    // Use JSON.stringify to convert the array to a string, with nice formatting
+    const dataString = JSON.stringify(games, null, 2);
+    await writeFile(DATAFILEPATH, dataString);
+  } catch (error) {
+    console.error("Error saving data to file:", error);
+  }
+};
+
+const requestLoggerMiddleWare = (req, _res, next) => {
+  console.warn(`Got incoming request: ${req.method} for ${req.url}`);
+
+  // Pass control to the next middleware function
+  next();
+};
+
+const authGuardMiddleWare = (req, res, next) => {
+  const accessToken = req.header("accessToken");
+
+  if (accessToken === "12345") {
+    next();
+  } else {
+    res.status(401).json({ error: "Not a valid access token" });
+  }
+};
+
+// Use the middleware for all incoming requests
+app.use(requestLoggerMiddleWare, express.json());
+
+// Define a route for GET requests to the root URL ('/')
+app.get("/", (_req, res) => {
+  const indexHTMLTemplate = `
   <header>
     <h1>Welcome to my server</h1>
     <nav>
@@ -23,41 +80,19 @@ const indexHTMLTemplate = `
   </header>
 `;
 
-const requestLogger = (req, res, next) => {
-  console.warn(`Got incoming request: ${req.method} for ${req.url}`);
-
-  // Pass control to the next middleware function
-  next();
-};
-
-const authGuard = (req, res, next) => {
-  const accessToken = req.header("accessToken");
-
-  if (accessToken === "12345") {
-    next();
-  } else {
-    res.status(401).json({ error: "Not a valid access token" });
-  }
-};
-
-// Use the middleware for all incoming requests
-app.use(requestLogger, express.json());
-
-// Define a route for GET requests to the root URL ('/')
-app.get("/", (req, res) => {
   // Use the send() method on the response object to send back a string
   res.send(indexHTMLTemplate);
 });
 
 // Define a route for GET requests to the root URL ('/')
-app.get("/about", (req, res) => {
+app.get("/about", (_req, res) => {
   // We manually set the header
   res.set("Content-Type", "text/html");
   // Use the send() method on the response object to send back a string
-  res.send(Buffer.from(aboutHTMLTemplate));
+  res.send(Buffer.from(htmlFilebuffer));
 });
 
-app.get("/api/greeting", (req, res) => {
+app.get("/api/greeting", (_req, res) => {
   const data = {
     message: "Hello from the API!",
     timestamp: new Date(),
@@ -67,30 +102,27 @@ app.get("/api/greeting", (req, res) => {
   res.json(data);
 });
 
-// This is our hardcoded data, acting as a mini-database for now.
-const games = [
-  { id: 1, name: "The Incredible Machine", year: 1993 },
-  { id: 2, name: "Lemmings", year: 1991 },
-  { id: 3, name: "Day of the Tentacle", year: 1993 },
-];
-
 // Endpoint to get all games
-app.get("/api/games", authGuard, (req, res) => {
+app.get("/api/games", (_req, res) => {
   res.json(games);
 });
 
 // Endpoint to create a new game
-app.post("/api/games", (req, res) => {
+app.post("/api/games", async (req, res) => {
   const body = req.body;
 
   console.log("body >>>>", body);
 
+  // This will add to the games list temporarly until the server is restarted. Usually inserting an item into permant database will be a async function and should be wrapped in a try catch.
   games.push({
     ...body,
     uuid: faker.string.uuid(),
     id: games.length + 1,
     year: 2025,
   });
+
+  // Asynchronously save the updated array to the file
+  await saveGamesData();
 
   res.status(201).json(games);
 });
@@ -111,7 +143,8 @@ app.get("/api/games/:id", (req, res) => {
   res.json(foundGame);
 });
 
-app.get("/api/dummy-products", async (req, res) => {
+// This route gets its data from an external datasource.
+app.get("/api/dummy-products", async (_req, res) => {
   let products = [];
 
   try {
@@ -128,15 +161,18 @@ app.get("/api/dummy-products", async (req, res) => {
 
   // If no game was found, send a 404 status and an error message
   if (products.length === 0) {
-    return res.status(404).json({ error: "Game not found" });
+    return res.status(404).json({ error: "No products found" });
   }
 
   res.json(products);
 });
 
-app.get("/api/products/:id", async (req, res) => {
-  const { id } = req.params;
+app.get("/api/products/:id", async (_req, res) => {
+  // We should search our database for this specific products
+  // const { id } = req.params;
+  // products.find(product => product.id === id);
 
+  // Here we generate a random product on the fly.
   let product = {
     id: faker.string.uuid(),
     title: faker.commerce.product(),
@@ -153,7 +189,9 @@ app.get("/api/products/:id", async (req, res) => {
   res.json(product);
 });
 
-app.get("/api/products", async (req, res) => {
+// This routed is protected. The client must send in a accesstoken to recieve the products data
+app.get("/api/products", authGuardMiddleWare, (req, res) => {
+  // Using a helper function to generate a list of random products.
   let products = createProducts();
 
   // If no game was found, send a 404 status and an error message
