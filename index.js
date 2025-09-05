@@ -2,17 +2,26 @@
 import express from "express";
 import { faker } from "@faker-js/faker";
 import { createProducts } from "./utils/mocks.js";
-import { readFileSync, writeFile } from "node:fs";
+import { readFileSync } from "node:fs";
+import { writeFile } from "fs/promises";
 import cors from "cors";
-import { WebSocketServer } from "ws";
+import { createServer } from "node:http";
+import { Server } from "socket.io";
 
 const PORT = 3000;
 let games = [];
+let chats = [];
 let htmlFilebuffer;
+
+const DATAFILEPATH = "./storage/games.json";
+const CHAT_DATA_FILE_PATH = "./storage/chat.json";
+const FE_PORT = "5173";
+const FE_URL = "172.27.100.244";
+const FE_ORIGIN = `${FE_URL}:${FE_PORT}`;
+const WEBSOCKET_PORT = 8080;
 
 // Create an instance of an Express application
 const app = express();
-const DATAFILEPATH = "./storage/games.json";
 
 // Load initial data from files when the server starts
 try {
@@ -20,8 +29,12 @@ try {
   // We use the synchronous read here because it's a one-time startup task.
 
   const buffer = readFileSync(new URL(DATAFILEPATH, import.meta.url));
+  const chatBuffer = readFileSync(
+    new URL(CHAT_DATA_FILE_PATH, import.meta.url)
+  );
 
   games = JSON.parse(buffer);
+  chats = JSON.parse(chatBuffer);
 
   // --- Load HTML FIles ---
 
@@ -32,6 +45,7 @@ try {
   console.error("Error reading data file on startup:", error);
   // If the file doesn't exist or is invalid, start with an empty array
   games = [];
+  chats = [];
 }
 
 // Helper function to write data to the file
@@ -40,6 +54,20 @@ const saveGamesData = async () => {
     // Use JSON.stringify to convert the array to a string, with nice formatting
     const dataString = JSON.stringify(games, null, 2);
     await writeFile(DATAFILEPATH, dataString);
+  } catch (error) {
+    console.error("Error saving data to file:", error);
+  }
+};
+
+// Helper function to write data to the file
+const saveChatsData = async (
+  arr = chats,
+  dataFilePath = CHAT_DATA_FILE_PATH
+) => {
+  try {
+    // Use JSON.stringify to convert the array to a string, with nice formatting
+    const dataString = JSON.stringify(chats, null, 2);
+    await writeFile(CHAT_DATA_FILE_PATH, dataString);
   } catch (error) {
     console.error("Error saving data to file:", error);
   }
@@ -208,33 +236,30 @@ app.listen(PORT, () => {
   console.log(`Server is running and listening on http://localhost:${PORT}`);
 });
 
-// Create a new WebSocket server on port 8080
-const wss = new WebSocketServer({ port: 8080 });
+const serverInstance = createServer(app);
+const io = new Server(serverInstance, {
+  cors: {
+    origin: "*",
+  },
+});
 
-console.log("WebSocket server started on port 8080");
+io.on("connection", (socket) => {
+  console.log("A user connected with socket ID:", socket.id);
 
-// Listen for new connections
-wss.on("connection", (ws) => {
-  // This callback function runs for every new client connection
-  console.log("A new client has connected!");
-
-  // Send a welcome message to the newly connected client
-  ws.send("Welcome to the WebSocket server!");
-
-  // Listen for messages from this specific client
-  ws.on("message", (message) => {
-    console.log("Received message from client: %s", message);
-    // Broadcast the received message to all connected clients
-    wss.clients.forEach((client) => {
-      // Check if the client is still open before sending
-      if (client.readyState === ws.OPEN) {
-        client.send(message.toString());
-      }
-    });
+  chats.forEach((chatMessage) => {
+    io.emit(chatMessage);
   });
 
-  // Listen for this client to close the connection
-  ws.on("close", () => {
-    console.log("A client has disconnected.");
+  socket.on("chat message", (message) => {
+    chats.push(message);
+    io.emit("chat message", message);
   });
+
+  socket.on("disconnect", () => {
+    console.log("User disconnected");
+  });
+});
+
+serverInstance.listen(WEBSOCKET_PORT, () => {
+  console.log(`Server running at http://localhost:${WEBSOCKET_PORT}`);
 });
