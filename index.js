@@ -1,9 +1,9 @@
 // Import the Express library using require
 import express from "express";
-import aboutHTMLTemplate from "./views/about.js";
 import { faker } from "@faker-js/faker";
 import { createProducts } from "./utils/mocks.js";
 import { readFileSync, writeFile } from "node:fs";
+import cors from "cors";
 
 const PORT = 3000;
 let games = [];
@@ -11,12 +11,12 @@ let htmlFilebuffer;
 
 // Create an instance of an Express application
 const app = express();
+const DATAFILEPATH = "./storage/games.json";
 
 // Load initial data from files when the server starts
 try {
   // --- Load JSON Data FIles ---
   // We use the synchronous read here because it's a one-time startup task.
-  const DATAFILEPATH = "./storage/games.json";
 
   const buffer = readFileSync(new URL(DATAFILEPATH, import.meta.url));
 
@@ -62,7 +62,7 @@ const authGuardMiddleWare = (req, res, next) => {
 };
 
 // Use the middleware for all incoming requests
-app.use(requestLoggerMiddleWare, express.json());
+app.use(cors(), requestLoggerMiddleWare, express.json());
 
 // Define a route for GET requests to the root URL ('/')
 app.get("/", (_req, res) => {
