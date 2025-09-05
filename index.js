@@ -4,6 +4,7 @@ import { faker } from "@faker-js/faker";
 import { createProducts } from "./utils/mocks.js";
 import { readFileSync, writeFile } from "node:fs";
 import cors from "cors";
+import { WebSocketServer } from "ws";
 
 const PORT = 3000;
 let games = [];
@@ -205,4 +206,35 @@ app.get("/api/products", authGuardMiddleWare, (req, res) => {
 // Start the server and listen on the specified port
 app.listen(PORT, () => {
   console.log(`Server is running and listening on http://localhost:${PORT}`);
+});
+
+// Create a new WebSocket server on port 8080
+const wss = new WebSocketServer({ port: 8080 });
+
+console.log("WebSocket server started on port 8080");
+
+// Listen for new connections
+wss.on("connection", (ws) => {
+  // This callback function runs for every new client connection
+  console.log("A new client has connected!");
+
+  // Send a welcome message to the newly connected client
+  ws.send("Welcome to the WebSocket server!");
+
+  // Listen for messages from this specific client
+  ws.on("message", (message) => {
+    console.log("Received message from client: %s", message);
+    // Broadcast the received message to all connected clients
+    wss.clients.forEach((client) => {
+      // Check if the client is still open before sending
+      if (client.readyState === ws.OPEN) {
+        client.send(message.toString());
+      }
+    });
+  });
+
+  // Listen for this client to close the connection
+  ws.on("close", () => {
+    console.log("A client has disconnected.");
+  });
 });
